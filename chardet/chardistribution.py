@@ -22,15 +22,39 @@ class CharDistributionAnalysis:
 
     def reset(self):
         """reset analyser, clear any state"""
-        pass
+        self._done = False
+        self._total_chars = 0
+        self._freq_chars = 0
 
     def feed(self, char, char_len):
         """feed a character with known length"""
-        pass
+        if char_len == 2:
+            # we only care about 2-bytes character in our distribution analysis
+            order = -1
+            if char[0] in self._char_to_freq_order:
+                order = self._char_to_freq_order[char[0]]
+            if order != -1 and order < self._table_size:
+                self._total_chars += 1
+                if order < 512:
+                    self._freq_chars += 1
+
+    def got_enough_data(self):
+        # It is not necessary to receive all data to draw conclusion.
+        # For charset probers, certain amount of data is enough
+        return self._total_chars > self.ENOUGH_DATA_THRESHOLD
 
     def get_confidence(self):
         """return confidence based on existing data"""
-        pass
+        if self._total_chars <= 0 or self._freq_chars <= self.MINIMUM_DATA_THRESHOLD:
+            return self.SURE_NO
+
+        if self._total_chars != self._freq_chars:
+            r = self._freq_chars / ((self._total_chars - self._freq_chars) * self.typical_distribution_ratio)
+            if r < self.SURE_YES:
+                return r
+
+        # normalize confidence, (we don't want to be 100% sure)
+        return self.SURE_YES
 
 class EUCTWDistributionAnalysis(CharDistributionAnalysis):
 

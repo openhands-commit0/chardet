@@ -15,11 +15,101 @@ class JapaneseContextAnalysis:
         self._done = None
         self.reset()
 
+    def reset(self):
+        """Reset the context analysis."""
+        self._total_rel = 0  # Total relative order
+        self._rel_sample = [0] * self.NUM_OF_CATEGORY  # Category counters
+        self._need_to_skip_char_num = 0  # Number of characters to skip
+        self._last_char_order = self.DONT_KNOW  # Last character's relative order
+        self._done = False  # Done analyzing
+
+    def get_order(self, byte_str):
+        """Get the order of the byte string."""
+        return -1
+
+    def get_confidence(self):
+        """Return confidence based on existing data."""
+        if self._total_rel > self.MINIMUM_DATA_THRESHOLD:
+            return 0.99
+        elif self._total_rel > 0:
+            return 0.75
+        return 0.0
+
+    def got_enough_data(self):
+        """Return true if we've received enough data."""
+        return self._done
+
+    def feed(self, byte_str, num_bytes):
+        """Feed a character with its byte length."""
+        if self._done:
+            return
+
+        # We only care about 2-bytes characters in our analysis
+        if num_bytes != 2:
+            return
+
+        # Skip half the input of less than 512 bytes
+        if self._total_rel < 512:
+            self._need_to_skip_char_num += 1
+            if self._need_to_skip_char_num % 2:
+                return
+
+        order = self.get_order(byte_str)
+        if order != self.DONT_KNOW:
+            self._total_rel += 1
+            if self._last_char_order != self.DONT_KNOW:
+                if self._total_rel > self.MAX_REL_THRESHOLD:
+                    self._done = True
+                    return
+                if order < self.NUM_OF_CATEGORY:
+                    self._rel_sample[order] += 1
+            self._last_char_order = order
+
 class SJISContextAnalysis(JapaneseContextAnalysis):
 
     def __init__(self):
         super().__init__()
         self._charset_name = 'SHIFT_JIS'
 
+    def get_order(self, byte_str):
+        if not byte_str:
+            return -1
+        # find out current char's byte length
+        first_char = byte_str[0]
+        if (0x81 <= first_char <= 0x9F or 0xE0 <= first_char <= 0xFC):
+            char_len = 2
+            if len(byte_str) < char_len:
+                return -1
+            order = jp2_char_context[first_char - 0x81]
+        else:
+            char_len = 1
+            if first_char < 0x80:
+                return -1
+            order = jp2_char_context[first_char - 0xA1]
+        return order
+
 class EUCJPContextAnalysis(JapaneseContextAnalysis):
-    pass
+    def __init__(self):
+        super().__init__()
+        self._charset_name = 'EUC-JP'
+
+    def get_order(self, byte_str):
+        if not byte_str:
+            return -1
+        # find out current char's byte length
+        first_char = byte_str[0]
+        if first_char == 0x8E or first_char == 0x8F:
+            char_len = 2
+            if len(byte_str) < char_len:
+                return -1
+            if first_char == 0x8F:
+                char_len = 3
+                if len(byte_str) < char_len:
+                    return -1
+            return -1
+        else:
+            char_len = 1
+            if first_char < 0xA1:
+                return -1
+            order = jp2_char_context[first_char - 0xA1]
+        return order
